@@ -1,50 +1,92 @@
-# SweldoSync - Project Status & Roadmap
-**Date:** February 12, 2026
-**Version:** MVP Phase 1 (Prototype)
+# SweldoSync Project Status Report - MVP V1 (Python Backend Pivot)
 
-## 1. Project Overview
-**SweldoSync** is a "Local-First" Payroll Computation Engine designed for the Philippine BPO market. It addresses the need for accurate, offline, and secure payroll audits that handle complex "layered" labor laws (Night Differential, Holidays, Rest Days) without data leaving the client's intranet.
+## 🚀 Major Architectural Pivot: API-First Modular Engine
 
-## 2. Technical Architecture
-*   **Core Engine:** Rust (`sweldo-sync/src-tauri`)
-    *   Uses `rust_decimal` for precise fixed-point financial math.
-    *   Uses `chrono` for robust datetime handling.
-    *   Uses `csv` crate for high-performance batch processing.
-*   **Frontend UI:** React + TypeScript (`sweldo-sync/src`)
-    *   Communicates with Rust via Tauri IPC bridge.
-    *   Accepts CSV files and displays audit summaries.
-*   **Distribution:** Tauri
-    *   Compiles to a lightweight native binary (MacOS/Windows).
-    *   Offline-capable by default.
+**Date:** February 22, 2026
+**Status:** MVP - Backend Core Implemented & Tested
 
-## 3. Current Implementation Status
-- [x] **Project Scaffolding:** Tauri + React + TypeScript set up.
-- [x] **Core Logic (Rust):**
-    - [x] Minute-level iteration for accuracy.
-    - [x] Night Differential calculation (10 PM - 6 AM).
-    - [x] Shift duration & Regular pay calculation.
-- [x] **Batch Processing:**
-    - [x] CSV file ingestion.
-    - [x] Mass calculation loop.
-    - [x] Error handling (skips bad rows, reports errors).
-    - [x] Audit Report generation (Total Cost + Breakdown).
-- [x] **UI/UX:**
-    - [x] File Picker integration.
-    - [x] "Browse & Compute" workflow.
-    - [x] Results Dashboard.
+### 1. The Core Shift: "Line-Item" Architecture
+We have successfully transitioned away from the monolithic, time-log-dependent calculation engine (Rust) to a modular, **API-First Payroll Engine** built with **Python (FastAPI)**.
 
-## 4. Immediate Next Steps (Roadmap)
-1.  **Holiday & Rest Day Logic:**
-    *   Extend `calculator.rs` to accept a list of "Holiday Dates".
-    *   Implement "Rest Day" logic (requires employee schedule context).
-2.  **Configuration UI:**
-    *   Allow users to set custom "Daily Rates" or "Shift Schedules" in the UI (currently hardcoded or purely CSV-driven).
-3.  **Export Feature:**
-    *   Add a button to export the `ComputationResult` back to a clean CSV/Excel file for the user to download.
-4.  **Licensing:**
-    *   Implement `machine-uid` check for the offline activation mechanism.
+This aligns strictly with the directive: **"Metering SHOULD be different from billing."**
 
-## 5. How to Resume Work
-1.  **Navigate to project:** `cd sweldo-sync`
-2.  **Run Dev Server:** `npm run tauri dev`
-3.  **Test File:** Use `timesheets_sample.csv` in the root folder.
+-   **Old Way (Monolith):** The app ingested raw `TimeIn/TimeOut` logs and calculated tardiness, overtime, and net pay in one go. This was brittle and coupled timekeeping logic with financial logic.
+-   **New Way (Modular):**
+    1.  **Metering (Input):** External systems (or a future module) process raw time logs and produce "Line Items" (e.g., `Base Pay: 15,000`, `Overtime: 2,500`, `Absences: -500`).
+    2.  **Billing (Engine):** Our new Python engine accepts these pre-computed line items and applies statutory deductions (SSS, PhilHealth, Pag-IBIG) and Tax to compute the final Net Pay.
+
+### 2. Tech Stack & Implementation
+The new backend is located in `sweldo-sync/backend/` and is built on:
+
+-   **Language:** Python 3.10+
+-   **Framework:** FastAPI (High performance, easy to document)
+-   **Database:** SQLModel (SQLAlchemy + Pydantic) for ORM
+-   **Testing:** Pytest (Unit & Integration tests)
+
+### 3. Key Features Implemented
+
+#### A. Statutory Computations
+The engine now correctly computes mandatory Philippine government contributions based on the "Gross Income" derived from the line items.
+-   **SSS:** Computed based on compensation brackets (simplified for MVP).
+-   **PhilHealth:** Computed as a percentage of the basic salary.
+-   **Pag-IBIG (HDMF):** Computed with mandatory employee/employer share caps.
+-   **Withholding Tax:** Applied on taxable income after statutory deductions.
+
+#### B. Multi-Tenancy & Security
+-   **Tenant Isolation:** Every database record (Employee, Payroll Run) is stamped with a `tenant_id`.
+-   **API Key Auth:** All API endpoints are secured via `X-API-Key` header. The system automatically scopes data access to the tenant associated with the provided key.
+
+#### C. Asynchronous Processing
+-   **Background Tasks:** Payroll calculation is triggered asynchronously. The API accepts the batch, returns a "Draft" status immediately, and processes the computation in the background to handle large employee volumes without blocking.
+
+### 4. Folder Structure (New Backend)
+
+```
+sweldo-sync/backend/
+├── app/
+│   ├── core/           # Core computation logic (The "Brain")
+│   ├── routers/        # API Endpoints (Payroll, Employees)
+│   ├── models.py       # Database Schemas (SQLModel)
+│   ├── auth.py         # API Key Security & Tenant Context
+│   └── main.py         # App Entry Point
+├── tests/              # Automated Test Suite
+└── requirements.txt    # Python Dependencies
+```
+
+### 5. What About Rust? (The "Shell")
+The original Rust code in `src-tauri` has been **deprecated** but kept as a "thin shell".
+-   `src-tauri/src/calculator.rs`: The old monolithic logic has been removed and replaced with a placeholder error message ("Use Python API").
+-   **Why?** This allows the team to continue using Tauri for a desktop application window if desired, without needing to maintain complex Rust logic. All business logic now lives in Python.
+
+### 6. How to Run & Test
+
+**Prerequisites:** Python 3.10+
+
+1.  **Navigate to Backend:**
+    ```bash
+    cd sweldo-sync/backend
+    ```
+
+2.  **Setup Virtual Environment:**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+
+3.  **Run the Server:**
+    ```bash
+    uvicorn app.main:app --reload
+    ```
+    -   API Docs: `http://127.0.0.1:8000/docs`
+
+4.  **Run Tests:**
+    ```bash
+    pytest tests/test_api_flow.py
+    ```
+    -   This runs a full end-to-end simulation: Creating a Tenant -> Syncing an Employee -> Ingesting Line Items -> Verifying Net Pay.
+
+### 7. Next Steps
+-   [ ] Connect the Frontend (React) to the new Python API.
+-   [ ] Implement the actual statutory table lookups (currently using simplified logic).
+-   [ ] Deploy the backend to a cloud provider (e.g., Render, AWS, DigitalOcean).
